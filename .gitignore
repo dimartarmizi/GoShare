@@ -19,6 +19,8 @@ coverage.out
 # Go workspace/cache helpers
 bin/
 dist/
+!frontend/dist/
+!frontend/dist/**
 
 # Wails build outputs
 build/bin/

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GoShare</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="aurora"></div>
+  <main class="shell">
+    <header class="hero">
+      <h1>GoShare</h1>
+      <p>LAN file transfer dengan backend Go + Wails desktop UI.</p>
+      <div id="statusPill" class="pill">Connecting...</div>
+    </header>
+
+    <section class="card form-card">
+      <h2>Kirim File</h2>
+      <label>Target Device Terpilih</label>
+      <input id="targetInput" placeholder="Belum ada device terpilih" readonly />
+
+      <label>File</label>
+      <div class="row">
+        <input id="fileInput" placeholder="Pilih file..." readonly />
+        <button id="pickBtn" class="ghost">Pilih</button>
+      </div>
+
+      <div class="row">
+        <button id="sendBtn">Kirim</button>
+        <button id="discoverBtn" class="ghost">Refresh Sekarang</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Perangkat Ditemukan</h2>
+      <ul id="deviceList" class="list"></ul>
+    </section>
+
+    <section class="card">
+      <h2>Transfer</h2>
+      <ul id="transferList" class="list"></ul>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
