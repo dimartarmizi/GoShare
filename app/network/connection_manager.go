@@ -338,7 +338,9 @@ func (cm *ConnectionManager) handleInboundConnection(conn net.Conn) (FileMetadat
 	if err != nil {
 		return meta, "", err
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	if err := file.Truncate(offset); err != nil {
 		_ = os.Remove(tmpPath)
@@ -398,8 +400,14 @@ func (cm *ConnectionManager) handleInboundConnection(conn net.Conn) (FileMetadat
 		return meta, "", err
 	}
 
+	if err := file.Close(); err != nil {
+		sendResultError("close temp file failed: " + err.Error())
+		_ = os.Remove(tmpPath)
+		return meta, "", err
+	}
+
 	targetPath = avoidOverwrite(targetPath)
-	if err := os.Rename(tmpPath, targetPath); err != nil {
+	if err := renameWithRetry(tmpPath, targetPath, 8, 120*time.Millisecond); err != nil {
 		sendResultError("finalize file failed: " + err.Error())
 		_ = os.Remove(tmpPath)
 		return meta, "", err
@@ -517,4 +525,24 @@ func fileSHA256(path string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func renameWithRetry(src, dst string, maxAttempts int, delay time.Duration) error {
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		err := os.Rename(src, dst)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt < maxAttempts {
+			time.Sleep(delay)
+		}
+	}
+
+	return lastErr
 }
