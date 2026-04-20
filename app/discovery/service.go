@@ -148,7 +148,7 @@ func (s *Service) Discover(ctx context.Context, timeout time.Duration) ([]Device
 		default:
 		}
 
-		n, _, err := udpConn.ReadFromUDP(buf)
+		n, remoteAddr, err := udpConn.ReadFromUDP(buf)
 		if err != nil {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				return mapToSlice(devices), nil
@@ -171,6 +171,11 @@ func (s *Service) Discover(ctx context.Context, timeout time.Duration) ([]Device
 		}
 		if info.ID == s.ID {
 			continue
+		}
+		if remoteAddr != nil && remoteAddr.IP != nil && !remoteAddr.IP.IsLoopback() {
+			if ip4 := remoteAddr.IP.To4(); ip4 != nil {
+				info.IP = ip4.String()
+			}
 		}
 		if isLocalIPv4(info.IP) && info.Port == s.ListenPort {
 			continue
@@ -198,94 +203,43 @@ func expectPrefix(line, prefix string) (string, error) {
 }
 
 func pickLocalIPv4For(remote net.IP) string {
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return "0.0.0.0"
-	}
+	rIP := remote.To4()
+	var fallback string
 
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
+	for _, ipNet := range getLocalIPNets(true) {
+		ip := ipNet.IP.To4()
+		if fallback == "" {
+			fallback = ip.String()
 		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			ipNet, ok := addr.(*net.IPNet)
-			if !ok || ipNet.IP == nil {
-				continue
-			}
-			ip := ipNet.IP.To4()
-			if ip == nil {
-				continue
-			}
-			if ipNet.Contains(remote) {
-				return ip.String()
-			}
+		if rIP != nil && ipNet.Contains(rIP) {
+			return ip.String()
 		}
 	}
 
+	if fallback != "" {
+		return fallback
+	}
 	return "0.0.0.0"
 }
 
 func discoveryTargets(port int) []*net.UDPAddr {
-	seen := map[string]struct{}{}
-	add := func(targets []*net.UDPAddr, ip net.IP) []*net.UDPAddr {
-		if ip == nil {
-			return targets
-		}
-		ip4 := ip.To4()
-		if ip4 == nil {
-			return targets
-		}
-		key := ip4.String()
-		if _, ok := seen[key]; ok {
-			return targets
-		}
-		seen[key] = struct{}{}
-		return append(targets, &net.UDPAddr{IP: ip4, Port: port})
-	}
+	seen := map[string]bool{}
+	var targets []*net.UDPAddr
 
-	targets := make([]*net.UDPAddr, 0, 8)
-	targets = add(targets, net.IPv4bcast)
-
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return targets
-	}
-
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			ipNet, ok := addr.(*net.IPNet)
-			if !ok || ipNet.IP == nil || ipNet.Mask == nil {
-				continue
-			}
-			ip := ipNet.IP.To4()
-			if ip == nil {
-				continue
-			}
-			mask := ipNet.Mask
-			if len(mask) < 4 {
-				continue
-			}
-			bcast := net.IPv4(
-				ip[0]|^mask[0],
-				ip[1]|^mask[1],
-				ip[2]|^mask[2],
-				ip[3]|^mask[3],
-			)
-			targets = add(targets, bcast)
+	add := func(ip net.IP) {
+		if ip4 := ip.To4(); ip4 != nil && !seen[ip4.String()] {
+			seen[ip4.String()] = true
+			targets = append(targets, &net.UDPAddr{IP: ip4, Port: port})
 		}
 	}
 
+	add(net.IPv4bcast)
+	for _, ipNet := range getLocalIPNets(true) {
+		ip, mask := ipNet.IP.To4(), ipNet.Mask
+		if len(mask) == 4 {
+			add(net.IPv4(ip[0]|^mask[0], ip[1]|^mask[1], ip[2]|^mask[2], ip[3]|^mask[3]))
+		}
+	}
 	return targets
 }
 
@@ -294,34 +248,27 @@ func isLocalIPv4(ipStr string) bool {
 	if ip == nil {
 		return false
 	}
-
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return false
-	}
-
-	for _, iface := range ifaces {
-		if iface.Flags&net.FlagUp == 0 {
-			continue
-		}
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-		for _, addr := range addrs {
-			ipNet, ok := addr.(*net.IPNet)
-			if !ok || ipNet.IP == nil {
-				continue
-			}
-			local := ipNet.IP.To4()
-			if local == nil {
-				continue
-			}
-			if local.Equal(ip) {
-				return true
-			}
+	for _, ipNet := range getLocalIPNets(false) {
+		if ipNet.IP.To4().Equal(ip) {
+			return true
 		}
 	}
-
 	return false
+}
+
+func getLocalIPNets(excludeLoopback bool) []*net.IPNet {
+	var nets []*net.IPNet
+	ifaces, _ := net.Interfaces()
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || (excludeLoopback && iface.Flags&net.FlagLoopback != 0) {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ipNet, ok := addr.(*net.IPNet); ok && ipNet.IP.To4() != nil {
+				nets = append(nets, ipNet)
+			}
+		}
+	}
+	return nets
 }
