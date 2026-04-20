@@ -163,6 +163,12 @@ func (s *Service) Discover(ctx context.Context, timeout time.Duration) ([]Device
 		if info.ID == "" {
 			continue
 		}
+		if info.ID == s.ID {
+			continue
+		}
+		if info.Port <= 0 {
+			continue
+		}
 		devices[info.ID] = info
 	}
 }

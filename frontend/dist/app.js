@@ -11,12 +11,22 @@ const sendBtn = document.getElementById('sendBtn');
 let latestDevices = [];
 let selectedDeviceId = '';
 
+function getSelectedDevice() {
+  return latestDevices.find((d) => d.id === selectedDeviceId);
+}
+
+function getSelectedTargetAddr() {
+  const selected = getSelectedDevice();
+  if (!selected || !selected.ip || !selected.port) return '';
+  return `${selected.ip}:${selected.port}`;
+}
+
 function formatDeviceLabel(device) {
   return `${device.name} (${device.ip}:${device.port})`;
 }
 
 function updateSelectedTargetInput() {
-  const selected = latestDevices.find((d) => d.id === selectedDeviceId);
+  const selected = getSelectedDevice();
   if (!selected) {
     targetInput.value = '';
     return;
@@ -146,9 +156,15 @@ sendBtn.addEventListener('click', async () => {
     return;
   }
 
+  const targetAddr = getSelectedTargetAddr();
+  if (!targetAddr) {
+    setStatus('Alamat target tidak valid. Coba refresh device terlebih dulu');
+    return;
+  }
+
   setStatus('Starting transfer...');
   try {
-    await api.SendFile(selectedDeviceId, file);
+    await api.SendFile(targetAddr, file);
     setStatus('Transfer started');
     refreshTransfers();
   } catch (err) {
