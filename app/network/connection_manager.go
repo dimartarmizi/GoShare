@@ -217,6 +217,9 @@ func (cm *ConnectionManager) SendFile(ctx context.Context, targetAddr, filePath 
 	if err != nil {
 		return err
 	}
+	if resultErrRaw, err := expectPrefix(line, "RESULT ERROR "); err == nil {
+		return fmt.Errorf(strings.TrimSpace(resultErrRaw))
+	}
 	if line != "RESULT OK" {
 		return fmt.Errorf("transfer failed: %s", line)
 	}
@@ -310,6 +313,15 @@ func (cm *ConnectionManager) handleInboundConnection(conn net.Conn) (FileMetadat
 		meta.ChunkSize = defaultChunkSize
 	}
 
+	sendResultError := func(message string) {
+		clean := strings.ReplaceAll(strings.TrimSpace(message), "\n", " ")
+		clean = strings.ReplaceAll(clean, "\r", " ")
+		if clean == "" {
+			clean = "unknown receiver error"
+		}
+		_ = writeLine(w, "RESULT ERROR "+clean)
+	}
+
 	safeName := utils.SafeFileName(meta.FileName)
 	tmpPath := filepath.Join(cm.SaveDir, safeName+".part")
 	targetPath := filepath.Join(cm.SaveDir, safeName)
@@ -339,32 +351,38 @@ func (cm *ConnectionManager) handleInboundConnection(conn net.Conn) (FileMetadat
 
 	written, err := cm.receiveChunks(conn, r, w, file, meta, offset)
 	if err != nil {
+		sendResultError("receive chunk failed: " + err.Error())
 		_ = os.Remove(tmpPath)
 		return meta, "", err
 	}
 	if written != meta.Size {
+		sendResultError(fmt.Sprintf("incomplete payload: %d/%d", written, meta.Size))
 		_ = os.Remove(tmpPath)
 		return meta, "", fmt.Errorf("incomplete payload: %d/%d", written, meta.Size)
 	}
 
 	line, err = readLine(r)
 	if err != nil {
+		sendResultError("read DONE failed: " + err.Error())
 		_ = os.Remove(tmpPath)
 		return meta, "", err
 	}
 	remoteHash, err := expectPrefix(line, "DONE ")
 	if err != nil {
+		sendResultError("invalid DONE message")
 		_ = os.Remove(tmpPath)
 		return meta, "", err
 	}
 
 	if err := file.Sync(); err != nil {
+		sendResultError("file sync failed: " + err.Error())
 		_ = os.Remove(tmpPath)
 		return meta, "", err
 	}
 
 	localHash, err := fileSHA256(tmpPath)
 	if err != nil {
+		sendResultError("hash compute failed: " + err.Error())
 		_ = os.Remove(tmpPath)
 		return meta, "", err
 	}
@@ -375,12 +393,14 @@ func (cm *ConnectionManager) handleInboundConnection(conn net.Conn) (FileMetadat
 	}
 
 	if err := os.MkdirAll(cm.SaveDir, 0o755); err != nil {
+		sendResultError("save dir unavailable: " + err.Error())
 		_ = os.Remove(tmpPath)
 		return meta, "", err
 	}
 
 	targetPath = avoidOverwrite(targetPath)
 	if err := os.Rename(tmpPath, targetPath); err != nil {
+		sendResultError("finalize file failed: " + err.Error())
 		_ = os.Remove(tmpPath)
 		return meta, "", err
 	}

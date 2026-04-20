@@ -128,9 +128,15 @@ func (s *Service) Discover(ctx context.Context, timeout time.Duration) ([]Device
 		return nil, err
 	}
 
-	target := &net.UDPAddr{IP: net.IPv4bcast, Port: s.DiscoveryPort}
-	if _, err := udpConn.WriteToUDP([]byte(discoveryRequest), target); err != nil {
-		return nil, err
+	targets := discoveryTargets(s.DiscoveryPort)
+	sent := false
+	for _, target := range targets {
+		if _, err := udpConn.WriteToUDP([]byte(discoveryRequest), target); err == nil {
+			sent = true
+		}
+	}
+	if !sent {
+		return nil, fmt.Errorf("failed to send discovery broadcast")
 	}
 
 	devices := make(map[string]DeviceInfo)
@@ -164,6 +170,9 @@ func (s *Service) Discover(ctx context.Context, timeout time.Duration) ([]Device
 			continue
 		}
 		if info.ID == s.ID {
+			continue
+		}
+		if isLocalIPv4(info.IP) && info.Port == s.ListenPort {
 			continue
 		}
 		if info.Port <= 0 {
@@ -218,4 +227,101 @@ func pickLocalIPv4For(remote net.IP) string {
 	}
 
 	return "0.0.0.0"
+}
+
+func discoveryTargets(port int) []*net.UDPAddr {
+	seen := map[string]struct{}{}
+	add := func(targets []*net.UDPAddr, ip net.IP) []*net.UDPAddr {
+		if ip == nil {
+			return targets
+		}
+		ip4 := ip.To4()
+		if ip4 == nil {
+			return targets
+		}
+		key := ip4.String()
+		if _, ok := seen[key]; ok {
+			return targets
+		}
+		seen[key] = struct{}{}
+		return append(targets, &net.UDPAddr{IP: ip4, Port: port})
+	}
+
+	targets := make([]*net.UDPAddr, 0, 8)
+	targets = add(targets, net.IPv4bcast)
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return targets
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok || ipNet.IP == nil || ipNet.Mask == nil {
+				continue
+			}
+			ip := ipNet.IP.To4()
+			if ip == nil {
+				continue
+			}
+			mask := ipNet.Mask
+			if len(mask) < 4 {
+				continue
+			}
+			bcast := net.IPv4(
+				ip[0]|^mask[0],
+				ip[1]|^mask[1],
+				ip[2]|^mask[2],
+				ip[3]|^mask[3],
+			)
+			targets = add(targets, bcast)
+		}
+	}
+
+	return targets
+}
+
+func isLocalIPv4(ipStr string) bool {
+	ip := net.ParseIP(strings.TrimSpace(ipStr)).To4()
+	if ip == nil {
+		return false
+	}
+
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return false
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok || ipNet.IP == nil {
+				continue
+			}
+			local := ipNet.IP.To4()
+			if local == nil {
+				continue
+			}
+			if local.Equal(ip) {
+				return true
+			}
+		}
+	}
+
+	return false
 }
