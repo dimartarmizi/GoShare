@@ -5,9 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -101,15 +103,13 @@ func main() {
 }
 
 func parsePort(listenAddr string) (int, error) {
-	var host string
-	var port int
-	_, err := fmt.Sscanf(listenAddr, "%[^:]:%d", &host, &port)
-	if err == nil {
-		return port, nil
+	_, portStr, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		return 0, fmt.Errorf("listen address must be host:port, got %q", listenAddr)
 	}
-	_, err = fmt.Sscanf(listenAddr, ":%d", &port)
-	if err == nil {
-		return port, nil
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port <= 0 {
+		return 0, fmt.Errorf("listen address must end with a positive numeric port, got %q", listenAddr)
 	}
-	return 0, fmt.Errorf("listen address must end with a numeric port, got %q", listenAddr)
+	return port, nil
 }

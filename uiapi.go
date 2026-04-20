@@ -71,8 +71,14 @@ func (u *UIAPI) DiscoverDevices(timeoutMS int) ([]discovery.DeviceInfo, error) {
 }
 
 func (u *UIAPI) SendFile(targetAddr, filePath string) (string, error) {
+	if targetAddr == "" {
+		return "", fmt.Errorf("target address is required")
+	}
+	if filePath == "" {
+		return "", fmt.Errorf("file path is required")
+	}
 	if _, err := os.Stat(filePath); err != nil {
-		return "", err
+		return "", fmt.Errorf("file not found: %w", err)
 	}
 	return u.backend.SendFile(targetAddr, filePath)
 }

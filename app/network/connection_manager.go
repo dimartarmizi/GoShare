@@ -3,8 +3,6 @@ package network
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -100,7 +98,7 @@ func (cm *ConnectionManager) SendFile(ctx context.Context, targetAddr, filePath 
 		return err
 	}
 
-	hash, err := fileSHA256(filePath)
+	hash, err := utils.FileSHA256(filePath)
 	if err != nil {
 		return err
 	}
@@ -129,19 +127,10 @@ func (cm *ConnectionManager) SendFile(ctx context.Context, targetAddr, filePath 
 	}
 
 	meta := FileMetadata{
-		FileName:  filepath.Base(filePath),
-		Size:      fi.Size(),
-		ChunkSize: defaultChunkSize,
-		TotalChunk: func() int64 {
-			total := fi.Size() / defaultChunkSize
-			if fi.Size()%defaultChunkSize != 0 {
-				total++
-			}
-			if total == 0 {
-				return 1
-			}
-			return total
-		}(),
+		FileName:   filepath.Base(filePath),
+		Size:       fi.Size(),
+		ChunkSize:  defaultChunkSize,
+		TotalChunk: totalChunks(fi.Size(), defaultChunkSize),
 	}
 	metaRaw, err := meta.JSON()
 	if err != nil {
@@ -322,7 +311,7 @@ func (cm *ConnectionManager) handleInboundConnection(conn net.Conn) (FileMetadat
 		_ = writeLine(w, "RESULT ERROR "+clean)
 	}
 
-	safeName := utils.SafeFileName(meta.FileName)
+	safeName := filepath.Base(meta.FileName)
 	tmpPath := filepath.Join(cm.SaveDir, safeName+".part")
 	targetPath := filepath.Join(cm.SaveDir, safeName)
 
@@ -382,7 +371,7 @@ func (cm *ConnectionManager) handleInboundConnection(conn net.Conn) (FileMetadat
 		return meta, "", err
 	}
 
-	localHash, err := fileSHA256(tmpPath)
+	localHash, err := utils.FileSHA256(tmpPath)
 	if err != nil {
 		sendResultError("hash compute failed: " + err.Error())
 		_ = os.Remove(tmpPath)
@@ -513,18 +502,18 @@ func avoidOverwrite(path string) string {
 	return fmt.Sprintf("%s_%s%s", base, stamp, ext)
 }
 
-func fileSHA256(path string) (string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", err
+func totalChunks(size, chunkSize int64) int64 {
+	if size <= 0 || chunkSize <= 0 {
+		return 1
 	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
+	total := size / chunkSize
+	if size%chunkSize != 0 {
+		total++
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	if total == 0 {
+		return 1
+	}
+	return total
 }
 
 func renameWithRetry(src, dst string, maxAttempts int, delay time.Duration) error {

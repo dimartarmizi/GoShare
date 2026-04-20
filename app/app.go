@@ -8,7 +8,6 @@ import (
 
 	"goshare/app/chunk"
 	"goshare/app/discovery"
-	"goshare/app/integrity"
 	"goshare/app/network"
 	"goshare/app/transfer"
 )
@@ -27,7 +26,6 @@ type App struct {
 	Connections *network.ConnectionManager
 	Transfers   *transfer.Manager
 	Discovery   *discovery.Service
-	Integrity   *integrity.Checker
 	Chunk       *chunk.Engine
 
 	OnFileReceived func(network.FileMetadata, string, error)
@@ -40,7 +38,6 @@ func New(cfg Config) *App {
 		Connections: conn,
 		Transfers:   transfer.NewManager(conn),
 		Discovery:   discovery.NewService(cfg.DeviceName, cfg.DeviceTCPPort, cfg.DiscoveryPort),
-		Integrity:   integrity.NewChecker(),
 		Chunk:       chunk.NewEngine(cfg.ChunkSize),
 	}
 }

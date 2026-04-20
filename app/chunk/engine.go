@@ -49,14 +49,6 @@ func (e *Engine) Plan(filePath string) ([]ChunkInfo, error) {
 	return chunks, nil
 }
 
-func (e *Engine) TotalChunks(filePath string) (int64, error) {
-	chunks, err := e.Plan(filePath)
-	if err != nil {
-		return 0, err
-	}
-	return int64(len(chunks)), nil
-}
-
 func (e *Engine) Validate() error {
 	if e.ChunkSize <= 0 {
 		return fmt.Errorf("chunk size must be > 0")

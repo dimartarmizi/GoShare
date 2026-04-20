@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
@@ -42,35 +41,28 @@ func (b *Backend) Stop() {
 }
 
 func (b *Backend) Discover(timeoutMS int) ([]discovery.DeviceInfo, error) {
-	ctx := context.Background()
 	timeout := 3 * time.Second
 	if timeoutMS > 0 {
 		timeout = time.Duration(timeoutMS) * time.Millisecond
 	}
-	return b.core.DiscoverDevices(ctx, timeout)
+	return b.core.DiscoverDevices(b.activeContext(), timeout)
 }
 
 func (b *Backend) SendFile(targetAddr, filePath string) (string, error) {
-	if targetAddr == "" {
-		return "", fmt.Errorf("target address is required")
-	}
-	if filePath == "" {
-		return "", fmt.Errorf("file path is required")
-	}
-	return b.core.SendFile(context.Background(), targetAddr, filePath)
+	return b.core.SendFile(b.activeContext(), targetAddr, filePath)
 }
 
 func (b *Backend) ListTransfers() []transfer.Task {
 	return b.core.Transfers.ListTasks()
 }
 
-func (b *Backend) GetTransfer(id string) (transfer.Task, bool) {
-	return b.core.Transfers.GetTask(id)
+func (b *Backend) CancelTransfer(id string) error {
+	return b.core.Transfers.CancelTransfer(id)
 }
 
-func (b *Backend) CancelTransfer(id string) error {
-	if id == "" {
-		return fmt.Errorf("transfer id is required")
+func (b *Backend) activeContext() context.Context {
+	if b.ctx == nil {
+		return context.Background()
 	}
-	return b.core.Transfers.CancelTransfer(id)
+	return b.ctx
 }

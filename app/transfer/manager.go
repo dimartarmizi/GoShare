@@ -123,16 +123,6 @@ func (m *Manager) CancelTransfer(id string) error {
 	return nil
 }
 
-func (m *Manager) GetTask(id string) (Task, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	t, ok := m.tasks[id]
-	if !ok {
-		return Task{}, false
-	}
-	return *t, true
-}
-
 func (m *Manager) ListTasks() []Task {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
