@@ -28,7 +28,9 @@ type Transfer struct {
 	PeerID           string     `json:"peerId"`
 	PeerName         string     `json:"peerName"`
 	Direction        string     `json:"direction"`
+	DirectionLabel   string     `json:"directionLabel"`
 	Status           string     `json:"status"`
+	StatusLabel      string     `json:"statusLabel"`
 	Files            []FileMeta `json:"files"`
 	TotalBytes       int64      `json:"totalBytes"`
 	TransferredBytes int64      `json:"transferredBytes"`

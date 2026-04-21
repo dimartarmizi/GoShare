@@ -24,7 +24,7 @@ import (
 
 const (
 	protocolVersion  = 1
-	defaultChunkSize = 64 * 1024
+	defaultChunkSize = 128 * 1024
 )
 
 type Config struct {
@@ -107,6 +107,8 @@ func (m *Manager) ListTransfers() []models.Transfer {
 	for _, transfer := range m.transfers {
 		copyTransfer := *transfer
 		copyTransfer.Files = append([]models.FileMeta(nil), transfer.Files...)
+		copyTransfer.DirectionLabel = transferDirectionLabel(copyTransfer.Direction)
+		copyTransfer.StatusLabel = transferStatusLabel(copyTransfer.Status)
 		items = append(items, copyTransfer)
 	}
 
@@ -618,6 +620,38 @@ func (m *Manager) setStatus(transferID string, status string, message string) {
 
 	if ok {
 		m.notifyChanged()
+	}
+}
+
+func transferStatusLabel(status string) string {
+	switch status {
+	case models.TransferStatusPending:
+		return "Pending"
+	case models.TransferStatusInProgress:
+		return "In Progress"
+	case models.TransferStatusPaused:
+		return "Paused"
+	case models.TransferStatusCompleted:
+		return "Completed"
+	case models.TransferStatusFailed:
+		return "Failed"
+	case models.TransferStatusCanceled:
+		return "Canceled"
+	case models.TransferStatusRejected:
+		return "Rejected"
+	default:
+		return "Unknown"
+	}
+}
+
+func transferDirectionLabel(direction string) string {
+	switch direction {
+	case models.TransferDirectionIncoming:
+		return "Incoming"
+	case models.TransferDirectionOutgoing:
+		return "Outgoing"
+	default:
+		return "Unknown"
 	}
 }
 

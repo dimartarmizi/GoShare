@@ -17,10 +17,11 @@ func main() {
 
 	err := wails.Run(&options.App{
 		Title:            "GoShare",
-		Width:            1180,
-		Height:           780,
-		MinWidth:         980,
-		MinHeight:        680,
+		Width:            1024,
+		Height:           720,
+		MinWidth:         320,
+		MinHeight:        568,
+		WindowStartState: options.Maximised,
 		DisableResize:    false,
 		Frameless:        false,
 		AssetServer:      &assetserver.Options{Assets: assets},

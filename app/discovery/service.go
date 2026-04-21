@@ -33,6 +33,7 @@ type Service struct {
 
 	mu      sync.RWMutex
 	devices map[string]models.Device
+	seenAt  map[string]time.Time
 
 	conn      *net.UDPConn
 	bufPool   sync.Pool
@@ -65,6 +66,7 @@ func NewService(cfg Config, onChanged func()) (*Service, error) {
 	svc := &Service{
 		cfg:       cfg,
 		devices:   make(map[string]models.Device),
+		seenAt:    make(map[string]time.Time),
 		onChanged: onChanged,
 		bufPool: sync.Pool{
 			New: func() any {
@@ -172,9 +174,9 @@ func (s *Service) pruneLoop(ctx context.Context) {
 
 			s.mu.Lock()
 			for id, d := range s.devices {
-				if d.IsOnline && now.Sub(d.LastSeen) >= s.cfg.OfflineAfter {
+				lastSeen := s.seenAt[id]
+				if d.IsOnline && now.Sub(lastSeen) >= s.cfg.OfflineAfter {
 					d.IsOnline = false
-					d.LastOnline = d.LastSeen
 					s.devices[id] = d
 					changed = true
 				}
@@ -285,32 +287,26 @@ func (s *Service) makeMessage(messageType string) models.DiscoveryMessage {
 
 func (s *Service) updateDevice(msg models.DiscoveryMessage, sourceIP string) {
 	now := time.Now()
-	latency := int(now.UnixMilli() - msg.Timestamp)
-	if latency < 0 {
-		latency = 0
-	}
 
 	changed := false
 	s.mu.Lock()
 	existing, exists := s.devices[msg.ID]
 	device := models.Device{
-		ID:         msg.ID,
-		Name:       msg.Name,
-		IP:         sourceIP,
-		Port:       msg.Port,
-		LastSeen:   now,
-		LastOnline: now,
-		IsOnline:   true,
-		Latency:    latency,
+		ID:       msg.ID,
+		Name:     msg.Name,
+		IP:       sourceIP,
+		Port:     msg.Port,
+		IsOnline: true,
 	}
 	if exists {
-		if existing.IP != device.IP || existing.IsOnline != device.IsOnline || existing.Name != device.Name || existing.Latency != device.Latency || existing.Port != device.Port {
+		if existing.IP != device.IP || existing.IsOnline != device.IsOnline || existing.Name != device.Name || existing.Port != device.Port {
 			changed = true
 		}
 	} else {
 		changed = true
 	}
 	s.devices[msg.ID] = device
+	s.seenAt[msg.ID] = now
 	s.mu.Unlock()
 
 	if changed {

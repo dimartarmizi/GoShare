@@ -17,6 +17,7 @@ import (
 	"goshare/app/discovery"
 	"goshare/app/models"
 	"goshare/app/transfer"
+	"goshare/app/utils"
 )
 
 const (
@@ -84,7 +85,6 @@ func (a *App) startup(ctx context.Context) {
 		DeviceID:       a.deviceID,
 		DeviceName:     a.deviceName,
 		ReceiveDir:     receiveDir,
-		ChunkSize:      64 * 1024,
 		MaxConnections: 50,
 	}, notify)
 	if err != nil {
@@ -114,9 +114,11 @@ func (a *App) shutdown(ctx context.Context) {
 func (a *App) AppInfo() map[string]any {
 	return map[string]any{
 		"name":          "GoShare",
-		"tagline":       "Fast local file sharing without internet",
+		"tagline":       "Simple file sharing over WiFi",
 		"deviceId":      a.deviceID,
 		"deviceName":    a.deviceName,
+		"deviceIP":      utils.PrimaryIPv4(),
+		"devicePort":    tcpPort,
 		"udpPort":       udpPort,
 		"tcpPort":       tcpPort,
 		"refreshMs":     1000,
