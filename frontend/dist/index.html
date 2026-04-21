@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GoShare</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="bg-shape bg-shape-a"></div>
+  <div class="bg-shape bg-shape-b"></div>
+
+  <main class="app-shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">GoShare</p>
+        <h1>Fast local file sharing without internet</h1>
+        <p id="deviceLabel" class="device-label">Loading device identity...</p>
+      </div>
+      <div class="status-pill" id="statusPill">Booting services...</div>
+    </header>
+
+    <section class="grid-layout">
+      <article class="panel devices-panel">
+        <div class="panel-header">
+          <h2>Devices</h2>
+          <span id="deviceCount" class="subtle">0 online</span>
+        </div>
+        <div id="deviceList" class="device-list"></div>
+      </article>
+
+      <article class="panel send-panel">
+        <div class="panel-header">
+          <h2>Send Files</h2>
+          <span class="subtle">MVP chunk 64KB</span>
+        </div>
+
+        <div class="actions-row">
+          <button id="pickFilesBtn" class="btn btn-ghost">Select Files</button>
+          <button id="sendBtn" class="btn btn-primary">Send</button>
+        </div>
+
+        <div id="selectedFiles" class="selected-files"></div>
+      </article>
+    </section>
+
+    <section class="panel transfers-panel">
+      <div class="panel-header">
+        <h2>Transfers</h2>
+        <span class="subtle">Incoming + Outgoing</span>
+      </div>
+      <div id="transferList" class="transfer-list"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
