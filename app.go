@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log"
+	"mime"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,6 +155,28 @@ func (a *App) PickFiles() ([]string, error) {
 		return nil, err
 	}
 	return paths, nil
+}
+
+func (a *App) GetFilePreview(filePath string) (string, error) {
+	if strings.TrimSpace(filePath) == "" {
+		return "", errors.New("file path is required")
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+
+	mimeType := mime.TypeByExtension(strings.ToLower(filepath.Ext(filePath)))
+	if mimeType == "" {
+		mimeType = http.DetectContentType(data)
+	}
+	if !strings.HasPrefix(mimeType, "image/") {
+		return "", errors.New("file is not an image")
+	}
+
+	encoded := base64.StdEncoding.EncodeToString(data)
+	return fmt.Sprintf("data:%s;base64,%s", mimeType, encoded), nil
 }
 
 func (a *App) SendFiles(deviceID string, filePaths []string) (string, error) {

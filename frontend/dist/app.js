@@ -7,6 +7,16 @@ const state = {
 	pollingStarted: false,
 	transferActionLocks: new Set(),
 	pendingRefreshTimer: null,
+	decisionModalAction: null,
+	incomingPromptOpen: false,
+	dragActive: false,
+	filePreviewCache: new Map(),
+	selectedFilesRenderToken: 0,
+	transferDrawerOpen: false,
+	transferUnreadIds: new Set(),
+	transferKnownIds: new Set(),
+	transferFabBumpTimer: null,
+	transferInitialSyncDone: false,
 };
 
 const refs = {
@@ -15,8 +25,19 @@ const refs = {
 	deviceList: document.getElementById("deviceList"),
 	selectedFiles: document.getElementById("selectedFiles"),
 	transferList: document.getElementById("transferList"),
-	pickFilesBtn: document.getElementById("pickFilesBtn"),
 	sendBtn: document.getElementById("sendBtn"),
+	sendDropzone: document.getElementById("sendDropzone"),
+	decisionModal: document.getElementById("decisionModal"),
+	transfersDrawer: document.getElementById("transfersDrawer"),
+	transferDrawerToggle: document.getElementById("transferDrawerToggle"),
+	transferBackdrop: document.getElementById("transferBackdrop"),
+	transferDrawerBadge: document.getElementById("transferDrawerBadge"),
+	transferDrawerCloseBtn: document.getElementById("transferDrawerCloseBtn"),
+	decisionModalTitle: document.getElementById("decisionModalTitle"),
+	decisionModalBody: document.getElementById("decisionModalBody"),
+	decisionModalConfirm: document.getElementById("decisionModalConfirm"),
+	decisionModalCancel: document.getElementById("decisionModalCancel"),
+	decisionModalClose: document.getElementById("decisionModalClose"),
 };
 
 function appApi() {
@@ -25,6 +46,24 @@ function appApi() {
 
 function fileNameFromPath(path) {
 	return path.split(/[/\\]/).pop() || path;
+}
+
+function fileExtension(path) {
+	const name = fileNameFromPath(path);
+	const index = name.lastIndexOf(".");
+	if (index <= 0) {
+		return "";
+	}
+	return name.slice(index + 1).toLowerCase();
+}
+
+function isImageFile(path) {
+	return ["png", "jpg", "jpeg", "gif", "webp", "bmp", "svg"].includes(fileExtension(path));
+}
+
+function fileTypeLabel(path) {
+	const ext = fileExtension(path);
+	return ext ? ext.toUpperCase() : "FILE";
 }
 
 function bytesToText(bytes) {
@@ -98,7 +137,13 @@ function emptyTransferStateMarkup() {
 }
 
 function renderDevices() {
-	refs.deviceCount.textContent = `${state.devices.length} online`;
+	if (state.devices.length === 0) {
+		refs.deviceCount.textContent = "";
+		refs.deviceCount.hidden = true;
+	} else {
+		refs.deviceCount.hidden = false;
+		refs.deviceCount.textContent = `${state.devices.length} online`;
+	}
 
 	if (state.devices.length === 0) {
 		refs.deviceList.innerHTML = emptyDeviceStateMarkup();
@@ -131,18 +176,105 @@ function renderDevices() {
 	});
 }
 
-function renderSelectedFiles() {
+async function getFilePreview(path) {
+	if (!isImageFile(path)) {
+		return null;
+	}
+
+	if (state.filePreviewCache.has(path)) {
+		return state.filePreviewCache.get(path);
+	}
+
+	const api = appApi();
+	if (!api || typeof api.GetFilePreview !== "function") {
+		return null;
+	}
+
+	try {
+		const preview = await api.GetFilePreview(path);
+		if (typeof preview === "string" && preview.startsWith("data:image/")) {
+			state.filePreviewCache.set(path, preview);
+			return preview;
+		}
+	} catch (err) {
+		void err;
+	}
+
+	return null;
+}
+
+async function renderSelectedFiles() {
+	const renderToken = state.selectedFilesRenderToken + 1;
+	state.selectedFilesRenderToken = renderToken;
+	refs.sendDropzone.classList.toggle("has-files", state.selectedFiles.length > 0);
+
 	if (state.selectedFiles.length === 0) {
-		refs.selectedFiles.innerHTML = '<div class="subtle">No File Selected.</div>';
+		refs.selectedFiles.innerHTML = "";
 		return;
 	}
 
-	refs.selectedFiles.innerHTML = state.selectedFiles
-		.map((path) => {
+	const cards = await Promise.all(
+		state.selectedFiles.map(async (path) => {
 			const name = fileNameFromPath(path);
-			return `<div class="file-row"><span class="file-name">${escapeHtml(name)}</span><span class="file-size">${escapeHtml(path)}</span></div>`;
+			const previewUrl = await getFilePreview(path);
+
+			if (previewUrl) {
+				return `
+					<div class="selected-file-card">
+						<div class="selected-file-preview selected-file-preview-image">
+							<button class="selected-file-remove" type="button" data-remove-file="${escapeHtml(path)}" aria-label="Remove ${escapeHtml(name)}">
+								<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trash" aria-hidden="true" focusable="false"><path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" /><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" /></svg>
+							</button>
+							<img src="${previewUrl}" alt="${escapeHtml(name)}" />
+						</div>
+						<div class="selected-file-meta">
+							<span class="selected-file-name">${escapeHtml(name)}</span>
+							<span class="selected-file-type">${escapeHtml(fileTypeLabel(path))}</span>
+						</div>
+					</div>
+				`;
+			}
+
+			return `
+				<div class="selected-file-card">
+					<div class="selected-file-preview">
+						<button class="selected-file-remove" type="button" data-remove-file="${escapeHtml(path)}" aria-label="Remove ${escapeHtml(name)}">
+							<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-trash" aria-hidden="true" focusable="false"><path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M4 7l16 0" /><path d="M10 11l0 6" /><path d="M14 11l0 6" /><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12" /><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3" /></svg>
+						</button>
+						<div class="selected-file-icon" aria-hidden="true">
+							<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round" class="icon icon-tabler icons-tabler-outline icon-tabler-file"><path stroke="none" d="M0 0h24v24H0z" fill="none" /><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2" /><path d="M9 17h6" /><path d="M9 13h6" /></svg>
+						</div>
+					</div>
+					<div class="selected-file-meta">
+						<span class="selected-file-name">${escapeHtml(name)}</span>
+						<span class="selected-file-type">${escapeHtml(fileTypeLabel(path))}</span>
+					</div>
+				</div>
+			`;
 		})
-		.join("");
+	);
+
+	if (state.selectedFilesRenderToken !== renderToken) {
+		return;
+	}
+
+	refs.selectedFiles.innerHTML = cards.join("");
+
+	refs.selectedFiles.querySelectorAll("[data-remove-file]").forEach((node) => {
+		node.addEventListener("click", async (event) => {
+			event.preventDefault();
+			event.stopPropagation();
+
+			const filePath = node.dataset.removeFile;
+			if (!filePath) {
+				return;
+			}
+
+			state.selectedFiles = state.selectedFiles.filter((item) => item !== filePath);
+			await renderSelectedFiles();
+			updateSendButton();
+		});
+	});
 }
 
 function actionButtons(transfer) {
@@ -208,8 +340,142 @@ function renderTransfers() {
 	});
 }
 
+function updateTransferBadge() {
+	const unreadCount = state.transferUnreadIds.size;
+	if (!refs.transferDrawerBadge) {
+		return;
+	}
+
+	if (unreadCount > 0) {
+		refs.transferDrawerBadge.hidden = false;
+		refs.transferDrawerBadge.textContent = unreadCount > 99 ? "99+" : String(unreadCount);
+		return;
+	}
+
+	refs.transferDrawerBadge.hidden = true;
+	refs.transferDrawerBadge.textContent = "";
+}
+
+function bumpTransferFab() {
+	if (!refs.transferDrawerToggle) {
+		return;
+	}
+
+	refs.transferDrawerToggle.classList.remove("bump");
+	void refs.transferDrawerToggle.offsetWidth;
+	refs.transferDrawerToggle.classList.add("bump");
+
+	if (state.transferFabBumpTimer != null) {
+		window.clearTimeout(state.transferFabBumpTimer);
+	}
+
+	state.transferFabBumpTimer = window.setTimeout(() => {
+		refs.transferDrawerToggle.classList.remove("bump");
+		state.transferFabBumpTimer = null;
+	}, 450);
+}
+
+function syncTransferUnread(transfers) {
+	const nextIds = new Set((transfers || []).map((transfer) => transfer.id));
+
+	if (!state.transferInitialSyncDone) {
+		state.transferKnownIds = nextIds;
+		state.transferUnreadIds.clear();
+		state.transferInitialSyncDone = true;
+		updateTransferBadge();
+		return 0;
+	}
+
+	state.transferUnreadIds = new Set(Array.from(state.transferUnreadIds).filter((transferId) => nextIds.has(transferId)));
+
+	let newCount = 0;
+	for (const transferId of nextIds) {
+		if (!state.transferKnownIds.has(transferId) && !state.transferDrawerOpen) {
+			state.transferUnreadIds.add(transferId);
+			newCount += 1;
+		}
+	}
+
+	state.transferKnownIds = nextIds;
+	updateTransferBadge();
+
+	if (newCount > 0) {
+		bumpTransferFab();
+	}
+
+	return newCount;
+}
+
+function setTransferDrawerOpen(open) {
+	state.transferDrawerOpen = open;
+	refs.transfersDrawer.classList.toggle("open", open);
+	refs.transferDrawerToggle.classList.toggle("drawer-open", open);
+	if (refs.transferBackdrop) {
+		refs.transferBackdrop.classList.toggle("open", open);
+	}
+	refs.transferDrawerToggle.setAttribute("aria-expanded", String(open));
+	refs.transferDrawerToggle.setAttribute("aria-label", open ? "Close transfers" : "Open transfers");
+
+	if (open) {
+		state.transferUnreadIds.clear();
+		updateTransferBadge();
+	}
+}
+
 function transferActionKey(action, transferId) {
 	return `${action}:${transferId}`;
+}
+
+function openDecisionModal(action, transferId) {
+	const transfer = state.transfers.find((item) => item.id === transferId);
+	if (!transfer) {
+		return;
+	}
+
+	const isAccept = action === "accept";
+	const fileNames = (transfer.files || []).map((file) => file.name).filter(Boolean);
+	refs.decisionModalTitle.textContent = isAccept ? "Accept incoming transfer?" : "Reject incoming transfer?";
+	refs.decisionModalBody.textContent = isAccept
+		? `Receive ${fileNames.length > 0 ? `${fileNames.length} file(s)` : "the incoming files"} from ${transfer.peerName || transfer.peerId || "Unknown Device"}.`
+		: `Reject ${fileNames.length > 0 ? `${fileNames.length} file(s)` : "this incoming transfer"} from ${transfer.peerName || transfer.peerId || "Unknown Device"}.`;
+	refs.decisionModalConfirm.textContent = isAccept ? "Accept" : "Reject";
+	refs.decisionModalConfirm.classList.toggle("btn-danger", !isAccept);
+	refs.decisionModalConfirm.classList.toggle("btn-primary", isAccept);
+	state.decisionModalAction = { action, transferId };
+	state.incomingPromptOpen = true;
+	refs.decisionModal.classList.add("open");
+	refs.decisionModal.setAttribute("aria-hidden", "false");
+	refs.decisionModalConfirm.focus();
+}
+
+function closeDecisionModal() {
+	state.decisionModalAction = null;
+	state.incomingPromptOpen = false;
+	refs.decisionModal.classList.remove("open");
+	refs.decisionModal.setAttribute("aria-hidden", "true");
+}
+
+async function confirmDecisionModal() {
+	if (!state.decisionModalAction) {
+		return;
+	}
+
+	const { action, transferId } = state.decisionModalAction;
+	closeDecisionModal();
+	await handleTransferAction(action, transferId, true);
+}
+
+function promptIncomingTransfer() {
+	if (state.incomingPromptOpen || state.decisionModalAction) {
+		return;
+	}
+
+	const incoming = state.transfers.find((transfer) => transfer.direction === "incoming" && transfer.status === "pending");
+	if (!incoming) {
+		return;
+	}
+
+	openDecisionModal("accept", incoming.id);
 }
 
 function scheduleRefresh(delayMs = 120) {
@@ -234,6 +500,81 @@ function escapeHtml(input) {
 
 function updateSendButton() {
 	refs.sendBtn.disabled = !(state.selectedDeviceId && state.selectedFiles.length > 0);
+}
+
+function setDropzoneActive(active) {
+	state.dragActive = active;
+	if (refs.sendDropzone) {
+		refs.sendDropzone.classList.toggle("drag-active", active);
+	}
+}
+
+function extractDroppedPaths(dataTransfer) {
+	const paths = [];
+	if (!dataTransfer) {
+		return paths;
+	}
+
+	if (dataTransfer.files && dataTransfer.files.length > 0) {
+		for (const file of Array.from(dataTransfer.files)) {
+			const filePath = file.path || file.fullPath || file.webkitRelativePath || "";
+			if (filePath) {
+				paths.push(filePath);
+			}
+		}
+	}
+
+	if (paths.length === 0 && dataTransfer.items && dataTransfer.items.length > 0) {
+		for (const item of Array.from(dataTransfer.items)) {
+			if (item.kind !== "file") {
+				continue;
+			}
+			const file = item.getAsFile();
+			const filePath = file && (file.path || file.fullPath || file.webkitRelativePath || "");
+			if (filePath) {
+				paths.push(filePath);
+			}
+		}
+	}
+
+	return paths;
+}
+
+function mergeSelectedFiles(paths) {
+	const nextPaths = Array.isArray(paths) ? paths : [];
+	if (nextPaths.length === 0) {
+		return false;
+	}
+
+	const existing = new Set(state.selectedFiles);
+	let changed = false;
+	for (const filePath of nextPaths) {
+		if (!filePath || existing.has(filePath)) {
+			continue;
+		}
+		existing.add(filePath);
+		state.selectedFiles.push(filePath);
+		changed = true;
+	}
+
+	return changed;
+}
+
+async function openFilePicker() {
+	const api = appApi();
+	if (!api) {
+		return;
+	}
+
+	try {
+		const files = await api.PickFiles();
+		if (mergeSelectedFiles(files)) {
+			await renderSelectedFiles();
+			updateSendButton();
+		}
+	} catch (err) {
+		void err;
+	}
 }
 
 async function refreshDevices() {
@@ -261,12 +602,19 @@ async function refreshTransfers() {
 		return;
 	}
 	state.transfers = await api.ListTransfers();
+	syncTransferUnread(state.transfers);
 	renderTransfers();
+	promptIncomingTransfer();
 }
 
-async function handleTransferAction(action, transferId) {
+async function handleTransferAction(action, transferId, force = false) {
 	const api = appApi();
 	if (!api) {
+		return;
+	}
+
+	if (!force && (action === "accept" || action === "reject")) {
+		openDecisionModal(action, transferId);
 		return;
 	}
 
@@ -307,14 +655,46 @@ async function bootstrap() {
 		return;
 	}
 
-	refs.pickFilesBtn.addEventListener("click", async () => {
-		try {
-			const files = await api.PickFiles();
-			state.selectedFiles = Array.isArray(files) ? files : [];
-			renderSelectedFiles();
+	refs.sendDropzone.addEventListener("click", async () => {
+		await openFilePicker();
+	});
+
+	refs.sendDropzone.addEventListener("keydown", async (event) => {
+		if (event.key === "Enter" || event.key === " ") {
+			event.preventDefault();
+			await openFilePicker();
+		}
+	});
+
+	refs.sendDropzone.addEventListener("dragenter", (event) => {
+		event.preventDefault();
+		setDropzoneActive(true);
+	});
+
+	refs.sendDropzone.addEventListener("dragover", (event) => {
+		event.preventDefault();
+		event.dataTransfer.dropEffect = "copy";
+		setDropzoneActive(true);
+	});
+
+	refs.sendDropzone.addEventListener("dragleave", (event) => {
+		if (event.target === refs.sendDropzone) {
+			setDropzoneActive(false);
+		}
+	});
+
+	refs.sendDropzone.addEventListener("drop", async (event) => {
+		event.preventDefault();
+		setDropzoneActive(false);
+
+		const droppedPaths = extractDroppedPaths(event.dataTransfer);
+		if (droppedPaths.length === 0) {
+			return;
+		}
+
+		if (mergeSelectedFiles(droppedPaths)) {
+			await renderSelectedFiles();
 			updateSendButton();
-		} catch (err) {
-			void err;
 		}
 	});
 
@@ -325,12 +705,82 @@ async function bootstrap() {
 		try {
 			await api.SendFiles(state.selectedDeviceId, state.selectedFiles);
 			state.selectedFiles = [];
-			renderSelectedFiles();
+			await renderSelectedFiles();
 			updateSendButton();
 			await refreshTransfers();
 		} catch (err) {
 			void err;
 		}
+	});
+
+	refs.transferDrawerToggle.addEventListener("click", () => {
+		setTransferDrawerOpen(!state.transferDrawerOpen);
+	});
+
+	refs.transferDrawerCloseBtn.addEventListener("click", () => {
+		setTransferDrawerOpen(false);
+	});
+
+	if (refs.transferBackdrop) {
+		refs.transferBackdrop.addEventListener("click", () => {
+			setTransferDrawerOpen(false);
+		});
+	}
+
+	refs.decisionModal.addEventListener("click", (event) => {
+		if (event.target === refs.decisionModal) {
+			if (state.decisionModalAction) {
+				const { transferId } = state.decisionModalAction;
+				closeDecisionModal();
+				void handleTransferAction("reject", transferId, true);
+			}
+		}
+	});
+
+	refs.decisionModalCancel.addEventListener("click", async () => {
+		if (state.decisionModalAction) {
+			const { transferId } = state.decisionModalAction;
+			closeDecisionModal();
+			try {
+				await handleTransferAction("reject", transferId, true);
+			} catch (err) {
+				void err;
+			}
+		}
+	});
+	refs.decisionModalClose.addEventListener("click", async () => {
+		if (state.decisionModalAction) {
+			const { transferId } = state.decisionModalAction;
+			closeDecisionModal();
+			try {
+				await handleTransferAction("reject", transferId, true);
+			} catch (err) {
+				void err;
+			}
+		}
+	});
+	refs.decisionModalConfirm.addEventListener("click", async () => {
+		try {
+			await confirmDecisionModal();
+		} catch (err) {
+			void err;
+		}
+	});
+
+	window.addEventListener("keydown", (event) => {
+		if (event.key === "Escape" && refs.decisionModal.classList.contains("open") && state.decisionModalAction) {
+			const { transferId } = state.decisionModalAction;
+			closeDecisionModal();
+			void handleTransferAction("reject", transferId, true);
+			return;
+		}
+		if (event.key === "Escape" && state.transferDrawerOpen) {
+			setTransferDrawerOpen(false);
+		}
+	});
+
+	window.addEventListener("dragend", () => {
+		setDropzoneActive(false);
 	});
 
 	try {
@@ -340,11 +790,12 @@ async function bootstrap() {
 		refs.deviceLabel.textContent = "Unable To Read App Info";
 	}
 
-	renderSelectedFiles();
+	await renderSelectedFiles();
 	updateSendButton();
 
 	await refreshDevices();
 	await refreshTransfers();
+	setTransferDrawerOpen(false);
 
 	if (!state.pollingStarted) {
 		state.pollingStarted = true;
