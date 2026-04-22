@@ -428,12 +428,15 @@ func (m *Manager) handleConn(conn net.Conn) {
 	}
 
 	m.setStatus(transferID, models.TransferStatusInProgress, "")
-	writers, closeFiles, err := m.prepareIncomingFiles(transfer.Files)
+	writers, cleanupFiles, err := m.prepareIncomingFiles(transfer.Files)
 	if err != nil {
 		m.failTransfer(transferID, err.Error())
 		return
 	}
-	defer closeFiles()
+	removePartialFiles := true
+	defer func() {
+		cleanupFiles(removePartialFiles)
+	}()
 
 	var pendingHeader *controlMessage
 	for {
@@ -458,6 +461,7 @@ func (m *Manager) handleConn(conn net.Conn) {
 			case controlTypeChunkHeader:
 				pendingHeader = &ctrl
 			case controlTypeTransferDone:
+				removePartialFiles = false
 				m.setStatus(transferID, models.TransferStatusCompleted, "")
 				return
 			case controlTypeTransferCancel:
@@ -558,15 +562,19 @@ func (m *Manager) createIncomingTransfer(transferID string, handshake controlMes
 	return transfer
 }
 
-func (m *Manager) prepareIncomingFiles(files []models.FileMeta) (map[string]*os.File, func(), error) {
+func (m *Manager) prepareIncomingFiles(files []models.FileMeta) (map[string]*os.File, func(remove bool), error) {
 	if err := os.MkdirAll(m.cfg.ReceiveDir, 0o755); err != nil {
 		return nil, nil, fmt.Errorf("cannot create receive directory: %w", err)
 	}
 
 	writers := make(map[string]*os.File, len(files))
-	closeFn := func() {
+	cleanupFn := func(remove bool) {
 		for _, f := range writers {
+			name := f.Name()
 			_ = f.Close()
+			if remove {
+				_ = os.Remove(name)
+			}
 		}
 	}
 
@@ -575,12 +583,12 @@ func (m *Manager) prepareIncomingFiles(files []models.FileMeta) (map[string]*os.
 		path := uniqueFilePath(m.cfg.ReceiveDir, name)
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o644)
 		if err != nil {
-			closeFn()
+			cleanupFn(true)
 			return nil, nil, fmt.Errorf("cannot create %s: %w", name, err)
 		}
 		writers[meta.ID] = f
 	}
-	return writers, closeFn, nil
+	return writers, cleanupFn, nil
 }
 
 func (m *Manager) incrementTransferred(transferID string, delta int64) {
