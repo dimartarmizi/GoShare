@@ -308,7 +308,6 @@ function renderTransfers() {
 		.map((transfer) => {
 			const files = (transfer.files || []).map((f) => f.name).join(", ") || "-";
 			const amount = `${bytesToText(transfer.transferredBytes)} / ${bytesToText(transfer.totalBytes)}`;
-			const err = transfer.error ? `<div class="subtle">${escapeHtml(transfer.error)}</div>` : "";
 			return `
 			<div class="transfer-item">
 				<div class="transfer-head">
@@ -324,7 +323,6 @@ function renderTransfers() {
 					<span>${amount}</span>
 					<span>${percent(transfer.progress)}</span>
 				</div>
-				${err}
 				<div class="transfer-actions">${actionButtons(transfer)}</div>
 			</div>
       `;
@@ -726,16 +724,6 @@ async function bootstrap() {
 			setTransferDrawerOpen(false);
 		});
 	}
-
-	refs.decisionModal.addEventListener("click", (event) => {
-		if (event.target === refs.decisionModal) {
-			if (state.decisionModalAction) {
-				const { transferId } = state.decisionModalAction;
-				closeDecisionModal();
-				void handleTransferAction("reject", transferId, true);
-			}
-		}
-	});
 
 	refs.decisionModalCancel.addEventListener("click", async () => {
 		if (state.decisionModalAction) {
